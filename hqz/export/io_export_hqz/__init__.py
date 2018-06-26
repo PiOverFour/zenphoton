@@ -66,7 +66,7 @@ bl_info = {
     "author": "Damien Picard",
     "version": (0, 4),
     "blender": (2, 7, 0),
-    "location": "View3D > Tool Shelf > HQZ Exporter",
+    "location": "Render, Object, Material Properties",
     "description": "Export scene to HQZ renderer",
     "warning": "",
     "wiki_url": "",
@@ -74,9 +74,8 @@ bl_info = {
     "category": "Import-Export"}
 
 import bpy
-# import bpy_extras
 from mathutils import Vector
-from math import pi, floor, degrees
+from math import degrees
 from bpy_extras.object_utils import world_to_camera_view
 import os
 import json
@@ -123,70 +122,75 @@ def get_object_rot(scene, object):
     return rot
 
 
-def write_batch_script(hqz_params, frame_range):
+def write_render_script(export_dir, hqz_params, frame_range):
     """Write script for rendering multiple images"""
     platform = os.sys.platform
-    shell_path = hqz_params.directory + 'batch'
+    render_script_path = os.path.join(export_dir, 'render')
     if 'win' in platform:
-        shell_path += '.bat'
-        shell_script = 'ECHO off\n\n'
+        render_script_path += '.bat'
+        script = 'ECHO off\n\n'
         for frame in frame_range:
             if hqz_params.ignore:
-                shell_script += (
+                script += (
                     'if exist "{image}.png" (\n'
                     '    ECHO "Ignoring existing file"\n'
                     ') else (\n'
                     ).format(
-                        image=(hqz_params.directory + hqz_params.file
-                               + '_' + str(frame).zfill(4)
+                        image=(hqz_params.export_filepath
+                               + '.' + str(frame).zfill(4)
                                )
                 )
-            shell_script += (
+            script += (
                 '    ECHO "Rendering image {image}..."\n'
-                '    "{engine_path}" "{image}.json" "{image}.png"\n'
-            ).format(image=(hqz_params.directory + hqz_params.file
-                            + '_' + str(frame).zfill(4)),
-                     engine_path=hqz_params.engine_path + 'hqz')
+                '    "{hqz_bin_path}" "{image}.json" "{image}.png"\n'
+            ).format(image=(hqz_params.export_filepath
+                            + '.' + str(frame).zfill(4)),
+                     hqz_bin_path=hqz_params.hqz_bin_path)
             if hqz_params.ignore:
-                shell_script += ')'
-            shell_script += '\n'
+                script += ')'
+            script += '\n'
     else:
-        shell_path += '.sh'
-        shell_script = '#!/bin/bash\n\n'
+        render_script_path += '.sh'
+        script = '#!/bin/bash\n\n'
         for frame in frame_range:
             if hqz_params.ignore:
-                shell_script += (
+                script += (
                     'if [ -f "{image}.png" ]\n'
                     'then\n'
                     '    echo "Ignoring existing file"\n'
                     'else\n'
                     ).format(
-                        image=(hqz_params.directory + hqz_params.file
-                               + '_' + str(frame).zfill(4)
+                        image=(hqz_params.export_filepath
+                               + '.' + str(frame).zfill(4)
                                )
                         )
-            shell_script += (
+            script += (
                 '    echo "Rendering image {image}..."\n'
-                '    "{engine_path}" "{image}.json" "{image}.png"\n'
-            ).format(image=(hqz_params.directory + hqz_params.file
-                            + '_' + str(frame).zfill(4)),
-                     engine_path=hqz_params.engine_path + 'hqz')
+                '    "{hqz_bin_path}" "{image}.json" "{image}.png"\n'
+            ).format(image=(hqz_params.export_filepath
+                            + '.' + str(frame).zfill(4)),
+                     hqz_bin_path=hqz_params.hqz_bin_path)
             if hqz_params.ignore:
-                shell_script += 'fi'
-            shell_script += '\n'
+                script += 'fi'
+            script += '\n'
 
-    file = open(shell_path, 'w')
-    file.write(shell_script)
+    file = open(render_script_path, 'w')
+    file.write(script)
     file.close()
 
 
-# START WRITING
-def export(context):
+def export(self, context):
     '''Create export data and write to file.'''
     sc = context.scene
     cam = sc.camera
     hqz_params = context.scene.hqz_parameters
     rp = sc.render.resolution_percentage / 100.0
+
+    if not hqz_params.hqz_bin_path:
+        self.report({'WARNING'}, 'Please select hqz binary.')
+    if not hqz_params.export_filepath:
+        self.report({'ERROR'}, 'Please choose export file name.')
+        return {'CANCELLED'}
 
     if hqz_params.animation:
         start_frame = sc.frame_start
@@ -195,13 +199,19 @@ def export(context):
         start_frame = sc.frame_current
         frame_range = (start_frame,)
 
-    if hqz_params.batch:
-        write_batch_script(hqz_params, frame_range)
+    export_dir = os.path.dirname(
+        bpy.path.abspath(hqz_params.export_filepath)
+    )
+
+    os.makedirs(export_dir, exist_ok=True)
+
+    if hqz_params.render_script_path:
+        write_render_script(export_dir, hqz_params, frame_range)
+
+    export_data = {}
 
     for frame in frame_range:
         print('Exporting frame', frame)
-
-        export_data = {}
 
         if hqz_params.animation:
             sc.frame_set(frame)
@@ -240,8 +250,7 @@ def export(context):
                     x *= sc.render.resolution_x * rp
                     y *= sc.render.resolution_y * rp
 
-                    # Check that lamp is not behind camera
-                    if z > 0:
+                    if z > 0:  # Check that lamp is not behind camera
                         y = sc.render.resolution_y * rp - y
                         hqz_light.append(lamp.data.energy)
                         hqz_light.append(x)
@@ -277,7 +286,7 @@ def export(context):
         # OBJECTS
         for obj in sc.objects:
             if (
-                    obj.type in {'MESH', 'CURVE', 'META', 'FONT', 'SURFACE'}
+                    obj.type in {'MESH', 'CURVE', 'FONT', 'SURFACE'}
                     and obj.is_visible(sc)
                     ):
                 mesh = bpy.data.meshes.new_from_object(
@@ -346,9 +355,8 @@ def export(context):
             mat_data.append([material.specular, "r"])
             export_data['materials'].append(mat_data)
 
-        save_path = (hqz_params.directory
-                     + hqz_params.file
-                     + '_' + str(frame).zfill(4)
+        save_path = (hqz_params.export_filepath
+                     + '.' + str(frame).zfill(4)
                      + '.json')
 
         d = os.path.dirname(save_path)
@@ -361,17 +369,17 @@ def export(context):
                               sort_keys=True)
                    )
         file.close()
+    return {'FINISHED'}
 
 
 # Operators
 
 class HQZExport(bpy.types.Operator):
     bl_label = "Export scene"
-    bl_idname = "view3d.hqz_export"
+    bl_idname = "render.hqz_export"
 
     def execute(self, context):
-        export(context)
-        return {'FINISHED'}
+        return export(self, context)
 
 
 class HQZMaterialAdd(bpy.types.Operator):
@@ -461,43 +469,55 @@ class HQZLampPanel(bpy.types.Panel):
 
 class HQZExportPanel(bpy.types.Panel):
     bl_label = "HQZ Exporter"
-    bl_space_type = "VIEW_3D"
-    bl_region_type = "TOOLS"
-    bl_category = "Export"
-    bl_context = "objectmode"
+    bl_space_type = 'PROPERTIES'
+    bl_region_type = 'WINDOW'
+    bl_context = "render"
 
     def draw(self, context):
         hqz_params = context.scene.hqz_parameters
         layout = self.layout
 
         col = layout.column(align=True)
-        col.prop(hqz_params, "engine_path")
-        col.prop(hqz_params, "directory")
-        col.prop(hqz_params, "file")
-        col.prop(hqz_params, "batch")
-        col.prop(hqz_params, "ignore")
+        col.prop(hqz_params, "hqz_bin_path")
+        col.prop(hqz_params, "export_filepath")
 
-        col = layout.column()
-        col = layout.column(align=True)
+        split = layout.split()
+        col = split.column(align=True)
+        col.prop(hqz_params, "render_script_path")
+
+        sub = col.column()
+        sub.active = hqz_params.render_script_path
+        sub.prop(hqz_params, "ignore")
+
+        col = split.column()
         col.prop(hqz_params, "debug")
-        row = col.row(align=True)
-        row.prop(hqz_params, "exposure")
-        row.prop(hqz_params, "gamma")
+
+        layout.separator()
+        split = layout.split()
+        col = split.column(align=True)
+        col.label(text="Image settings:")
+        col.prop(hqz_params, "exposure")
+        col.prop(hqz_params, "gamma")
+
+        col = split.column(align=True)
+        col.label(text="Stopping conditions:")
         col.prop(hqz_params, "rays")
-        row = col.row(align=True)
-        row.prop(hqz_params, "seed")
-        row.prop(hqz_params, "time")
+        col.prop(hqz_params, "time")
+
+        layout.separator()
+        split = layout.split()
+        col = split.column(align=True)
+        col.prop(hqz_params, "normals_export")
+        sub = col.column()
+        sub.active = hqz_params.normals_export
+        sub.prop(hqz_params, "normals_invert")
+
+        col = split.column()
         col.prop(hqz_params, "animation")
 
-        row = col.row(align=True)
-        row.prop(hqz_params, "normals_export")
-        sub = row.column()
-        sub.prop(hqz_params, "normals_invert")
-        sub.active = hqz_params.normals_export
-
         col = layout.column()
         col = layout.column()
-        col.operator("view3d.hqz_export", text="Export scene")
+        col.operator("render.hqz_export", text="Export scene")
 
 
 class HQZLamp(bpy.types.PropertyGroup):
@@ -525,19 +545,21 @@ class HQZMaterial(bpy.types.PropertyGroup):
 
 class HQZParameters(bpy.types.PropertyGroup):
     materials = bpy.props.CollectionProperty(type=HQZMaterial)
-    engine_path = bpy.props.StringProperty(
-        name="Engine path",
+    hqz_bin_path = bpy.props.StringProperty(
+        name="hqz binary path",
+        description="Path to the hqz binary",
         subtype="FILE_PATH")
-    directory = bpy.props.StringProperty(
-        name="Export directory",
-        subtype="DIR_PATH")
-    file = bpy.props.StringProperty(
-        name="File name")
-    batch = bpy.props.BoolProperty(
-        name="Export batch file",
+    export_filepath = bpy.props.StringProperty(
+        name="Export filepath",
+        description="Path where the hqz json file will be exported",
+        subtype="FILE_PATH")
+    render_script_path = bpy.props.BoolProperty(
+        name="Export render script",
+        description="Export bash / bat file, to ease rendering",
         default=True)
     ignore = bpy.props.BoolProperty(
-        name="Ignore existing file",
+        name="Ignore existing",
+        description="Do not replace existing frames",
         default=False)
 
     exposure = bpy.props.FloatProperty(
@@ -554,24 +576,28 @@ class HQZParameters(bpy.types.PropertyGroup):
         min=0)
     seed = bpy.props.IntProperty(
         name="Seed",
+        description="Animate this to change noise pattern",
         default=0,
         min=0)
     time = bpy.props.IntProperty(
-        name="Max render time (0 for infinity)",
+        name="Max render time",
+        description="Time before render is cancelled (0 for infinity)",
         default=0,
         min=0)
     animation = bpy.props.BoolProperty(
         name="Export animation",
+        description="Export a file for each frame in Blender's frame range",
         default=False)
     normals_export = bpy.props.BoolProperty(
         name="Export normals",
+        description="Export meshes' normals, especially for caustics",
         default=True)
     normals_invert = bpy.props.BoolProperty(
         name="Invert normals",
         default=False)
     debug = bpy.props.BoolProperty(
         name="Debug",
-        description="Remove all newlines to read with wireframe.html",
+        description="Remove all newlines, to read json with wireframe.html",
         default=False)
 
 
