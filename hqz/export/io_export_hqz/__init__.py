@@ -64,7 +64,7 @@
 bl_info = {
     "name": "HQZ exporter",
     "author": "Damien Picard",
-    "version": (0, 4, 0),
+    "version": (0, 4),
     "blender": (2, 7, 0),
     "location": "View3D > Tool Shelf > HQZ Exporter",
     "description": "Export scene to HQZ renderer",
@@ -206,6 +206,7 @@ def export(context):
         if hqz_params.animation:
             sc.frame_set(frame)
 
+        # SETTINGS
         export_data['resolution'] = [
             int(sc.render.resolution_x * rp),
             int(sc.render.resolution_y * rp)]
@@ -227,7 +228,7 @@ def export(context):
                 lamp_obstacle = False
 
                 if not lamp_obstacle:
-                    light = []
+                    hqz_light = []
                     use_spectral = lamp.data.hqz_lamp.use_spectral_light
                     spectral_start = lamp.data.hqz_lamp.spectral_start
                     spectral_end = lamp.data.hqz_lamp.spectral_end
@@ -242,57 +243,64 @@ def export(context):
                     # Check that lamp is not behind camera
                     if z > 0:
                         y = sc.render.resolution_y * rp - y
-                        light.append(lamp.data.energy)
-                        light.append(x)
-                        light.append(y)
+                        hqz_light.append(lamp.data.energy)
+                        hqz_light.append(x)
+                        hqz_light.append(y)
                         if lamp.data.type == 'SPOT':
                             lamp_angle = get_object_rot(sc, lamp)
                             lamp_size = degrees(lamp.data.spot_size) / 2.0
                             lamp_min = (lamp_angle - lamp_size)
                             lamp_max = (lamp_angle + lamp_size)
-                            light.append([lamp_min, lamp_max])
+                            hqz_light.append([lamp_min, lamp_max])
                         else:
-                            light.append([0, 360])
+                            hqz_light.append([0, 360])
                         light_start = (
                             lamp.data.hqz_lamp.light_start
                             * (sc.render.resolution_y * rp))
                         light_end = (
                             lamp.data.hqz_lamp.light_end
                             * (sc.render.resolution_y * rp))
-                        light.append([light_start,
-                                      light_end])
+                        hqz_light.append([light_start,
+                                          light_end])
                         if lamp.data.type == 'SPOT':
-                            light.append([lamp_min, lamp_max])
+                            hqz_light.append([lamp_min, lamp_max])
                         else:
-                            light.append([0, 360])
+                            hqz_light.append([0, 360])
                         if use_spectral:
-                            light.append([spectral_start, spectral_end])
+                            hqz_light.append([spectral_start, spectral_end])
                         else:
-                            light.append(wav)
-                    export_data['lights'].append(light)
+                            hqz_light.append(wav)
+                    export_data['lights'].append(hqz_light)
 
         export_data['objects'] = []
 
-        # get Blender edge list
-        edge_list = []
+        # OBJECTS
         for obj in sc.objects:
-            if obj.type == 'MESH' and obj.is_visible(sc):
+            if (
+                    obj.type in {'MESH', 'CURVE', 'META', 'FONT', 'SURFACE'}
+                    and obj.is_visible(sc)
+                    ):
                 mesh = bpy.data.meshes.new_from_object(
                     sc, obj, apply_modifiers=True, settings='PREVIEW')
                 for edge in mesh.edges:
                     if edge.use_freestyle_mark:
                         continue
-                    edgev = {}
+                    edge_data = []
                     vertices = list(edge.vertices)
-                    edgev["material"] = obj.hqz_material_id
+                    # MATERIAL
+                    edge_data.append(obj.hqz_material_id)
                     v1 = obj.matrix_world * mesh.vertices[vertices[0]].co
                     v2 = obj.matrix_world * mesh.vertices[vertices[1]].co
                     v1_cam = world_to_camera_view(
                         sc, cam, v1)
                     v2_cam = world_to_camera_view(
                         sc, cam, v2)
-                    edgev["v1"] = v1_cam
-                    edgev["v2"] = v2_cam
+                    # VERT1 XPOS
+                    edge_data.append(
+                        v1_cam.x * sc.render.resolution_x * rp)
+                    # VERT1 YPOS
+                    edge_data.append(
+                        (1 - v1_cam.y) * sc.render.resolution_y * rp)
                     if hqz_params.normals_export:
                         v1_normal_offset = (
                             v1 + obj.matrix_world
@@ -302,54 +310,32 @@ def export(context):
                             v2 + obj.matrix_world
                             * mesh.vertices[vertices[1]].normal
                             )
-                        n1 = get_normal_from_points(sc, obj, v1, v1_normal_offset)
+                        n1 = get_normal_from_points(
+                            sc, obj, v1, v1_normal_offset)
                         n1_angle = degrees(Vector((1.0, 0.0)).angle_signed(n1))
-                        n2 = get_normal_from_points(sc, obj, v2, v2_normal_offset)
+                        n2 = get_normal_from_points(
+                            sc, obj, v2, v2_normal_offset)
                         n2_angle = degrees(n1.angle_signed(n2))
                         if hqz_params.normals_invert:
                             n1_angle += 180
                             n2_angle += 180
-                        edgev["n1"] = n1_angle
-                        edgev["n2"] = n2_angle
+                        # VERT1 NORMAL
+                        edge_data.append(n1_angle)
+                        # VERT2 DELTA XPOS
+                        edge_data.append(
+                            (v2_cam.x - v1_cam.x)
+                            * sc.render.resolution_x * rp
+                        )
+                        # VERT2 DELTA YPOS
+                        edge_data.append(
+                            (v1_cam.y - v2_cam.y)
+                            * sc.render.resolution_y * rp
+                        )
+                        # VERT2 NORMAL
+                        edge_data.append(n2_angle)
 
-                    edge_list.append(edgev)
+                    export_data['objects'].append(edge_data)
                 bpy.data.meshes.remove(mesh)
-
-        # OBJECTS
-        for edge in edge_list:
-            # if check_inside(
-            #         context,
-            #         edge["v1"].x * sc.render.resolution_x * rp,
-            #         edge["v1"].y * sc.render.resolution_y * rp
-            #         ):
-            edge_data = []
-            # MATERIAL
-            edge_data.append(edge["material"])
-            # VERT1 XPOS
-            edge_data.append(
-                edge["v1"].x
-                * sc.render.resolution_x * rp)
-            # VERT1 YPOS
-            edge_data.append(
-                (1 - edge["v1"].y) * sc.render.resolution_y * rp)
-            # VERT1 NORMAL
-            if hqz_params.normals_export:
-                edge_data.append(edge["n1"])
-            # VERT2 DELTA XPOS
-            edge_data.append(
-                (edge["v2"].x - edge["v1"].x)
-                * sc.render.resolution_x * rp
-            )
-            # VERT2 DELTA YPOS
-            edge_data.append(
-                (edge["v1"].y - edge["v2"].y)
-                * sc.render.resolution_y * rp
-            )
-            # VERT2 NORMAL
-            if hqz_params.normals_export:
-                edge_data.append(edge["n2"])
-
-            export_data['objects'].append(edge_data)
 
         # Materials
         export_data['materials'] = []
@@ -360,14 +346,20 @@ def export(context):
             mat_data.append([material.specular, "r"])
             export_data['materials'].append(mat_data)
 
-        save_path = hqz_params.directory + hqz_params.file + '_' + str(frame).zfill(4) + '.json'
+        save_path = (hqz_params.directory
+                     + hqz_params.file
+                     + '_' + str(frame).zfill(4)
+                     + '.json')
 
         d = os.path.dirname(save_path)
         os.makedirs(d, exist_ok=True)
 
         file = open(save_path, 'w')
         file.write(json.dumps(
-            export_data, indent=None if hqz_params.debug else 2, sort_keys=True))
+                              export_data,
+                              indent=None if hqz_params.debug else 2,
+                              sort_keys=True)
+                   )
         file.close()
 
 
@@ -502,7 +494,6 @@ class HQZExportPanel(bpy.types.Panel):
         sub = row.column()
         sub.prop(hqz_params, "normals_invert")
         sub.active = hqz_params.normals_export
-        # col.prop(hqz_params, "outside_limit")
 
         col = layout.column()
         col = layout.column()
@@ -582,10 +573,6 @@ class HQZParameters(bpy.types.PropertyGroup):
         name="Debug",
         description="Remove all newlines to read with wireframe.html",
         default=False)
-    # outside_limit = bpy.props.FloatProperty(
-    #     name="Object outside view by (px)",
-    #     description="Do not export invisible points. Use negative value to export all",
-    #     default=-1.0)
 
 
 def register():
