@@ -137,6 +137,9 @@ def export(self, context):
     if not hqz_params.export_filepath:
         self.report({'ERROR'}, 'Please choose export file name.')
         return {'CANCELLED'}
+    if cam is None:
+        self.report({'ERROR'}, 'No camera found in scene.')
+        return {'CANCELLED'}
 
     if hqz_params.animation:
         start_frame = sc.frame_start
@@ -267,27 +270,28 @@ def export(self, context):
                             )
                         n1 = get_normal_from_points(
                             sc, obj, v1, v1_normal_offset)
-                        n1_angle = degrees(Vector((1.0, 0.0)).angle_signed(n1))
                         n2 = get_normal_from_points(
                             sc, obj, v2, v2_normal_offset)
-                        n2_angle = degrees(n1.angle_signed(n2))
-                        if hqz_params.normals_invert:
-                            n1_angle += 180
-                            n2_angle += 180
-                        # VERT1 NORMAL
-                        edge_data.append(n1_angle)
-                        # VERT2 DELTA XPOS
-                        edge_data.append(
-                            (v2_cam.x - v1_cam.x)
-                            * sc.render.resolution_x * rp
-                        )
-                        # VERT2 DELTA YPOS
-                        edge_data.append(
-                            (v1_cam.y - v2_cam.y)
-                            * sc.render.resolution_y * rp
-                        )
-                        # VERT2 NORMAL
-                        edge_data.append(n2_angle)
+                        if n1.length_squared and n2.length_squared:
+                            # Do not export normals if parallel to camera axis
+                            n1_angle = degrees(Vector((1.0, 0.0)).angle_signed(n1))
+                            n2_angle = degrees(n1.angle_signed(n2))
+                            if hqz_params.normals_invert:
+                                n1_angle += 180
+                            # VERT1 NORMAL
+                            edge_data.append(n1_angle)
+                            # VERT2 DELTA XPOS
+                            edge_data.append(
+                                (v2_cam.x - v1_cam.x)
+                                * sc.render.resolution_x * rp
+                            )
+                            # VERT2 DELTA YPOS
+                            edge_data.append(
+                                (v1_cam.y - v2_cam.y)
+                                * sc.render.resolution_y * rp
+                            )
+                            # VERT2 NORMAL
+                            edge_data.append(n2_angle)
 
                     export_data['objects'].append(edge_data)
                 bpy.data.meshes.remove(mesh)
@@ -382,9 +386,10 @@ class HQZMaterialPanel(bpy.types.Panel):
         layout.separator()
         col = layout.column(align=True)
         active_mat = ob.hqz_material_id
-        col.prop(hqz_params.materials[active_mat], "diffuse")
-        col.prop(hqz_params.materials[active_mat], "specular")
-        col.prop(hqz_params.materials[active_mat], "transmission")
+        if active_mat < len(hqz_params.materials):
+            col.prop(hqz_params.materials[active_mat], "diffuse")
+            col.prop(hqz_params.materials[active_mat], "specular")
+            col.prop(hqz_params.materials[active_mat], "transmission")
 
 
 class HQZLampPanel(bpy.types.Panel):
@@ -401,6 +406,8 @@ class HQZLampPanel(bpy.types.Panel):
         lamp = context.object.data
         layout = self.layout
 
+        layout.prop(lamp, 'energy')
+
         col = layout.column(align=True)
         col.prop(lamp.hqz_lamp, 'light_start')
         col.prop(lamp.hqz_lamp, 'light_end')
@@ -408,9 +415,11 @@ class HQZLampPanel(bpy.types.Panel):
         col.separator()
         col.prop(lamp.hqz_lamp, 'use_spectral_light')
         sub = col.column(align=True)
-        sub.active = lamp.hqz_lamp.use_spectral_light
-        sub.prop(lamp.hqz_lamp, 'spectral_start')
-        sub.prop(lamp.hqz_lamp, 'spectral_end')
+        if lamp.hqz_lamp.use_spectral_light:
+            sub.prop(lamp.hqz_lamp, 'spectral_start')
+            sub.prop(lamp.hqz_lamp, 'spectral_end')
+        else:
+            sub.prop(lamp, 'color')
 
 
 class HQZExportPanel(bpy.types.Panel):
