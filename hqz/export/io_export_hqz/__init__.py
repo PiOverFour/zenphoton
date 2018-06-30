@@ -1,65 +1,11 @@
-####### hqz exporter for blender V0.3.3 ##############
+####### hqz exporter for Blender ##############
 #
-#   Damien Picard 2014
+#   © Damien Picard 2014-2018
+#
+#	HQZ by Micah Elizabeth Scott - scanlime.org
+#
+###############################################
 
-#	HQZ by M. Elizabeth Scott - http://scanlime.org/
-#
-# Usage:
-# - install add-on to blender/2.6x/scripts/addons
-# - or zip the folder and go to User Preferences -> Addons -> Install from File...
-# - a wild panel appears ! in the View 3D Toolbar.
-# - First, check 3D export for freestyle contour rendering.
-#   This uses a line module to select lines to render from perspective camera
-#   If left unchecked, the drawiwng will be 2D.
-# - click "Prepare scene" (and switch to camera view)
-# - change settings according to your gneeds
-# - write materials to the materials list
-# - if you need more materials, add sliders and corresponding stuff to the interface...
-# - add mesh objects
-# - in the object properties, select the material you wish to assign (default = 0)
-# - change light color and intensity : set color value to 0 for white light or choose hue
-#   alternatively you can also set hqz_spectral_light to 1 and choose a spectral range between 400 & 700 nm (Start/End)
-# - click "Export"
-# - that's pretty much it
-# - if something doesn't work:
-#      click "Prepare scene" again
-#      check that you have at least one mesh object and one light object
-#      PiOverFour on GitHub
-#
-#
-#  ABOUT 2D MODE :
-#
-#   object vertices on the XY plane and extruding all edges to Z. this makes sure that only edges
-#   on the XY plane are exported, and the normals are more predictable and controlable.
-# - add spot or point light objects
-# - rotate spots only around the Z axis
-#
-#
-#  ABOUT 3D MODE :
-#
-# - spot lights are not currently supported in 3D mode. The maths are
-#   too damn high.
-#
-###################################
-#
-# spectral color cheatsheet
-#
-#     400        450        500        550        600        650        700   nm -->
-#    PURPLE      BLUE    CYAN    GREEN     YELLOW     ORANGE   RED
-#
-###################################
-#
-# TODO
-# exception if folder not set
-# FREESTYLE :
-#             spotlights in cam space
-#             ignore hidden lights
-#
-#             custom freestyle contour shaders?
-#             option not to check light visibility? or reduce intensity?
-#
-#
-###################################
 
 bl_info = {
     "name": "HQZ exporter",
