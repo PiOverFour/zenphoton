@@ -259,14 +259,26 @@ def export(self, context):
                     # VERT1 YPOS
                     edge_data.append(
                         (1 - v1_cam.y) * sc.render.resolution_y * rp)
+                    # VERT2 DELTA XPOS
+                    edge_data.append(
+                        (v2_cam.x - v1_cam.x)
+                        * sc.render.resolution_x * rp
+                    )
+                    # VERT2 DELTA YPOS
+                    edge_data.append(
+                        (v1_cam.y - v2_cam.y)
+                        * sc.render.resolution_y * rp
+                    )
                     if hqz_params.normals_export:
                         v1_normal_offset = (
-                            v1 + obj.matrix_world
-                            * mesh.vertices[vertices[0]].normal
+                            obj.matrix_world
+                            * (mesh.vertices[vertices[0]].co
+                               + mesh.vertices[vertices[0]].normal)
                             )
                         v2_normal_offset = (
-                            v2 + obj.matrix_world
-                            * mesh.vertices[vertices[1]].normal
+                            obj.matrix_world
+                            * (mesh.vertices[vertices[1]].co
+                               + mesh.vertices[vertices[1]].normal)
                             )
                         n1 = get_normal_from_points(
                             sc, obj, v1, v1_normal_offset)
@@ -279,17 +291,7 @@ def export(self, context):
                             if hqz_params.normals_invert:
                                 n1_angle += 180
                             # VERT1 NORMAL
-                            edge_data.append(n1_angle)
-                            # VERT2 DELTA XPOS
-                            edge_data.append(
-                                (v2_cam.x - v1_cam.x)
-                                * sc.render.resolution_x * rp
-                            )
-                            # VERT2 DELTA YPOS
-                            edge_data.append(
-                                (v1_cam.y - v2_cam.y)
-                                * sc.render.resolution_y * rp
-                            )
+                            edge_data.insert(3, n1_angle)
                             # VERT2 NORMAL
                             edge_data.append(n2_angle)
 
